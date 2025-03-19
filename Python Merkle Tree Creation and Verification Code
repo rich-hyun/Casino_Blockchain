@@ -1,0 +1,60 @@
+import hashlib
+from web3 import Web3
+
+class MerkleTree:
+    def __init__(self, data_list):
+        self.leaves = [self._hash(data) for data in data_list]
+        self.tree = self._build_tree(self.leaves)
+
+    def _hash(self, data):
+        return hashlib.sha256(data.encode()).hexdigest()
+
+    def _build_tree(self, leaves):
+        tree = [leaves]
+        while len(tree[-1]) > 1:
+            level = []
+            for i in range(0, len(tree[-1]), 2):
+                if i + 1 < len(tree[-1]):
+                    combined = tree[-1][i] + tree[-1][i + 1]
+                else:
+                    combined = tree[-1][i]
+                level.append(self._hash(combined))
+            tree.append(level)
+        return tree
+
+    def get_merkle_root(self):
+        return self.tree[-1][0] if self.tree else None
+
+    def get_proof(self, data):
+        proof = []
+        hash_data = self._hash(data)
+        level = self.leaves
+        while len(level) > 1:
+            new_level = []
+            for i in range(0, len(level), 2):
+                if i + 1 < len(level):
+                    combined = level[i] + level[i + 1]
+                    new_hash = self._hash(combined)
+                    if level[i] == hash_data:
+                        proof.append(level[i + 1])
+                    elif level[i + 1] == hash_data:
+                        proof.append(level[i])
+                    new_level.append(new_hash)
+                else:
+                    new_level.append(level[i])
+            level = new_level
+        return proof
+
+# Example
+bet_data = [
+    "Player1: 1 ETH, Win",
+    "Player2: 2 ETH, Lose",
+    "Player3: 1.5 ETH, Win"
+]
+
+merkle_tree = MerkleTree(bet_data)
+merkle_root = merkle_tree.get_merkle_root()
+print(f"Merkle Root: {merkle_root}")
+
+proof = merkle_tree.get_proof("Player1: 1 ETH, Win")
+print(f"Proof for Player1's Bet: {proof}")
