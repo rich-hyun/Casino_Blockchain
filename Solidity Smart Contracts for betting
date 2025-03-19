@@ -1,0 +1,67 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.19;
+
+contract CasinoBet {
+    address public owner;
+    bytes32 public merkleRoot;  // save murkle tree
+
+    event BetPlaced(address indexed player, uint256 betAmount, bool win, uint256 payout);
+    event MerkleRootUpdated(bytes32 newMerkleRoot);
+    
+    constructor(bytes32 _initialMerkleRoot) {
+        owner = msg.sender;
+        merkleRoot = _initialMerkleRoot;
+    }
+
+    // betting function
+    function placeBet() external payable {
+        require(msg.value > 0, "Bet must include ETH");
+        uint256 bet = msg.value;
+        
+        // create random number(Test)
+        uint256 random = uint256(keccak256(abi.encodePacked(blockhash(block.number - 1), msg.sender, block.timestamp)));
+        bool win = (random % 2 == 0);  // 50% possibility
+
+        uint256 payout = 0;
+        if (win) {
+            payout = bet * 2;  // If victory, pay double
+            require(address(this).balance >= payout, "Casino balance insufficient");
+            payable(msg.sender).transfer(payout);
+        }
+
+        emit BetPlaced(msg.sender, bet, win, payout);
+    }
+
+    // merkle root update(only casino possible)
+    function updateMerkleRoot(bytes32 newRoot) external {
+        require(msg.sender == owner, "Only owner can update");
+        merkleRoot = newRoot;
+        emit MerkleRootUpdated(newRoot);
+    }
+
+    // Merkle proof activity evidence 
+    function verifyBet(bytes32 leaf, bytes32[] calldata proof) external view returns (bool) {
+        bytes32 computedHash = leaf;
+        for (uint256 i = 0; i < proof.length; i++) {
+            bytes32 proofElement = proof[i];
+            if (computedHash < proofElement) {
+                computedHash = keccak256(abi.encodePacked(computedHash, proofElement));
+            } else {
+                computedHash = keccak256(abi.encodePacked(proofElement, computedHash));
+            }
+        }
+        return computedHash == merkleRoot;
+    }
+
+    // Operator Funds Withdrawal Function
+    function withdraw(uint256 amount) external {
+        require(msg.sender == owner, "Only owner can withdraw");
+        require(address(this).balance >= amount, "Insufficient balance");
+        payable(owner).transfer(amount);
+    }
+
+    // Check contract balance
+    function getBalance() external view returns (uint256) {
+        return address(this).balance;
+    }
+}
