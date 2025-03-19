@@ -1,0 +1,52 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.19;
+
+contract CasinoVerification {
+    address public owner;
+    bytes32 public merkleRoot; // Merkle Root stored on-chain
+
+    event MerkleRootUpdated(bytes32 newMerkleRoot);
+    event CustomerVerification(address indexed customer, bool verified);
+    event GovernmentVerification(bool verified);
+
+    constructor(bytes32 _initialMerkleRoot) {
+        owner = msg.sender;
+        merkleRoot = _initialMerkleRoot;
+    }
+
+    // Function to update the Merkle Root (only the owner can update)
+    function updateMerkleRoot(bytes32 newRoot) external {
+        require(msg.sender == owner, "Only owner can update");
+        merkleRoot = newRoot;
+        emit MerkleRootUpdated(newRoot);
+    }
+
+    // Function for customers to verify their bet using Merkle Proof
+    function verifyCustomerBet(bytes32 leaf, bytes32[] calldata proof) external returns (bool) {
+        bool isValid = verifyMerkleProof(leaf, proof);
+        emit CustomerVerification(msg.sender, isValid);
+        return isValid;
+    }
+
+    // Function for government authorities to verify requested data
+    function verifyGovernmentData(bytes32 leaf, bytes32[] calldata proof) external returns (bool) {
+        bool isValid = verifyMerkleProof(leaf, proof);
+        emit GovernmentVerification(isValid);
+        return isValid;
+    }
+
+    // Internal function to verify Merkle Proof against the stored Merkle Root
+    function verifyMerkleProof(bytes32 leaf, bytes32[] calldata proof) internal view returns (bool) {
+        bytes32 computedHash = leaf;
+        for (uint256 i = 0; i < proof.length; i++) {
+            bytes32 proofElement = proof[i];
+
+            if (computedHash < proofElement) {
+                computedHash = keccak256(abi.encodePacked(computedHash, proofElement));
+            } else {
+                computedHash = keccak256(abi.encodePacked(proofElement, computedHash));
+            }
+        }
+        return computedHash == merkleRoot;
+    }
+}
