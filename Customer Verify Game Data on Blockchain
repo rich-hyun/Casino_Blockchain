@@ -1,0 +1,27 @@
+from web3 import Web3
+import hashlib
+
+# Connect to the Ethereum network
+w3 = Web3(Web3.HTTPProvider("https://goerli.infura.io/v3/YOUR_INFURA_PROJECT_ID"))
+
+# Load the deployed smart contract address and ABI
+contract_address = "0xYOUR_CONTRACT_ADDRESS"
+with open("CasinoBet_abi.json") as f:
+    contract_abi = f.read()
+contract = w3.eth.contract(address=contract_address, abi=contract_abi)
+
+# Customer's betting data and Merkle proof (provided from the private blockchain)
+bet_data = "Player1: 1 ETH, Win"
+proof = ["0xabc123...", "0xdef456..."]  # Merkle Proof list
+
+# Generate hash for the betting data
+leaf_hash = hashlib.sha256(bet_data.encode()).hexdigest()
+
+# Execute verification on the blockchain
+is_valid = contract.functions.verifyBet(leaf_hash, proof).call()
+
+# Print verification result
+if is_valid:
+    print("✅ Customer's bet matches the blockchain record! (Fairly processed)")
+else:
+    print("❌ Betting data does not match! (Potential tampering detected)")
