@@ -1,45 +1,86 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
-contract CasinoBet {
-    address public owner;
-    bytes32 public merkleRoot;  // save murkle tree
+import "@chainlink/contracts/src/v0.8/VRFConsumerBaseV2.sol";
+import "@chainlink/contracts/src/v0.8/interfaces/VRFCoordinatorV2Interface.sol";
 
-    event BetPlaced(address indexed player, uint256 betAmount, bool win, uint256 payout);
+contract CasinoVRF is VRFConsumerBaseV2 {
+    address public owner;
+    bytes32 public merkleRoot;
+
+    VRFCoordinatorV2Interface COORDINATOR;
+    uint64 s_subscriptionId;
+    bytes32 keyHash;
+    uint32 callbackGasLimit = 100000;
+    uint16 requestConfirmations = 3;
+    uint32 numWords = 1;
+
+    mapping(uint256 => address) public requestIdToPlayer;
+    mapping(address => uint256) public pendingBets;
+
+    event BetRequested(uint256 requestId, address player, uint256 amount);
+    event BetResolved(address player, uint256 amount, bool win, uint256 payout);
     event MerkleRootUpdated(bytes32 newMerkleRoot);
-    
-    constructor(bytes32 _initialMerkleRoot) {
+
+    constructor(
+        address vrfCoordinator,
+        bytes32 _keyHash,
+        uint64 subscriptionId,
+        bytes32 _initialMerkleRoot
+    ) VRFConsumerBaseV2(vrfCoordinator) {
         owner = msg.sender;
+        COORDINATOR = VRFCoordinatorV2Interface(vrfCoordinator);
+        keyHash = _keyHash;
+        s_subscriptionId = subscriptionId;
         merkleRoot = _initialMerkleRoot;
     }
 
-    // betting function
     function placeBet() external payable {
         require(msg.value > 0, "Bet must include ETH");
-        uint256 bet = msg.value;
-        
-        // create random number(Test)
-        uint256 random = uint256(keccak256(abi.encodePacked(blockhash(block.number - 1), msg.sender, block.timestamp)));
-        bool win = (random % 2 == 0);  // 50% possibility
 
-        uint256 payout = 0;
-        if (win) {
-            payout = bet * 2;  // If victory, pay double
-            require(address(this).balance >= payout, "Casino balance insufficient");
-            payable(msg.sender).transfer(payout);
-        }
+        uint256 requestId = COORDINATOR.requestRandomWords(
+            keyHash,
+            s_subscriptionId,
+            requestConfirmations,
+            callbackGasLimit,
+            numWords
+        );
 
-        emit BetPlaced(msg.sender, bet, win, payout);
+        requestIdToPlayer[requestId] = msg.sender;
+        pendingBets[msg.sender] = msg.value;
+
+        emit BetRequested(requestId, msg.sender, msg.value);
     }
 
-    // merkle root update(only casino possible)
+    function fulfillRandomWords(
+        uint256 requestId,
+        uint256[] memory randomWords
+    ) internal override {
+        address player = requestIdToPlayer[requestId];
+        uint256 betAmount = pendingBets[player];
+        require(betAmount > 0, "No pending bet");
+
+        bool win = (randomWords[0] % 2 == 0);
+        uint256 payout = 0;
+
+        if (win) {
+            payout = betAmount * 2;
+            require(address(this).balance >= payout, "Insufficient balance");
+            payable(player).transfer(payout);
+        }
+
+        emit BetResolved(player, betAmount, win, payout);
+
+        // Reset bet
+        delete pendingBets[player];
+    }
+
     function updateMerkleRoot(bytes32 newRoot) external {
         require(msg.sender == owner, "Only owner can update");
         merkleRoot = newRoot;
         emit MerkleRootUpdated(newRoot);
     }
 
-    // Merkle proof activity evidence 
     function verifyBet(bytes32 leaf, bytes32[] calldata proof) external view returns (bool) {
         bytes32 computedHash = leaf;
         for (uint256 i = 0; i < proof.length; i++) {
@@ -53,14 +94,12 @@ contract CasinoBet {
         return computedHash == merkleRoot;
     }
 
-    // Operator Funds Withdrawal Function
     function withdraw(uint256 amount) external {
         require(msg.sender == owner, "Only owner can withdraw");
         require(address(this).balance >= amount, "Insufficient balance");
         payable(owner).transfer(amount);
     }
 
-    // Check contract balance
     function getBalance() external view returns (uint256) {
         return address(this).balance;
     }
